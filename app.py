@@ -5,11 +5,11 @@ and it trusts everyone. There is no authentication and no authorization yet.
 That is the point: you will add both, lesson by lesson, in Units 2 and 3.
 """
 
-import sqlite3
+import sqlite3 
 
 from flask import Flask, g, jsonify, request
 
-from werkzeug.security import generate_password_hash
+from werkzeug.security import generate_password_hash, check_password_hash
 
 DATABASE = "recipes.db"
 
@@ -129,6 +129,90 @@ def delete_recipe(recipe_id):
         return jsonify({"error": "recipe not found"}), 404
     return "", 204
 
+@app.route("/register", methods=["POST"])
+def register():
+    data = request.get_json(silent=True)
+
+    if not isinstance(data, dict):
+        return jsonify({"error": "Invalid registration data"}), 400
+
+    if "username" not in data:
+        return jsonify({"error": "Invalid registration data"}), 400
+    if not isinstance(data["username"], str) or not data["username"].strip():
+        return jsonify({"error": "Invalid registration data"}), 400
+
+    if "email" not in data:
+        return jsonify({"error": "Invalid registration data"}), 400
+    if not isinstance(data["email"], str) or not data["email"].strip():
+        return jsonify({"error": "Invalid registration data"}), 400
+
+    if "password" not in data:
+        return jsonify({"error": "Invalid registration data"}), 400
+    if not isinstance(data["password"], str) or not data["password"].strip():
+        return jsonify({"error": "Invalid registration data"}), 400
+
+    # ✅ At this point, validation passed
+
+    username = data["username"].strip()
+    email = data["email"].strip()
+    password = data["password"]
+
+    password_hash = generate_password_hash(password)
+
+    db = get_db()
+
+    try:
+        cursor = db.execute(
+            "INSERT INTO users (username, email, password_hash) VALUES (?, ?, ?)",
+            (username, email, password_hash),
+        )
+        db.commit()
+    except sqlite3.IntegrityError:
+        # probably duplicate username or email
+        return jsonify({"error": "Account already exists"}), 409
+
+    new_id = cursor.lastrowid
+
+    return (
+        jsonify(
+            {
+                "id": new_id,
+                "username": username,
+                "email": email,
+            }
+        ),
+        201,
+    )
+
+@app.post("/login")
+def login():
+    data = request.get_json(silent=True)
+
+    if not isinstance(data, dict):
+        return jsonify({"error": "username and password are required"}), 400
+
+    username = data.get("username")
+    password = data.get("password")
+
+    if not isinstance(username, str) or not username.strip():
+        return jsonify({"error": "username and password are required"}), 400
+
+    if not isinstance(password, str) or not password.strip():
+        return jsonify({"error": "username and password are required"}), 400
+
+    db = get_db()
+    user = db.execute(
+        "SELECT id, username, password_hash FROM users WHERE username = ?",
+        (username.strip(),),
+    ).fetchone()
+
+    if user is None or not check_password_hash(user["password_hash"], password):
+        return jsonify({"error": "Invalid credentials"}), 401
+
+    return jsonify({
+        "id": user["id"],
+        "username": user["username"],
+    }), 200
 
 if __name__ == "__main__":
     app.run(debug=True)
