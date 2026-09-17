@@ -9,6 +9,8 @@ import sqlite3
 
 from flask import Flask, g, jsonify, request
 
+from werkzeug.security import generate_password_hash
+
 DATABASE = "recipes.db"
 
 app = Flask(__name__)
