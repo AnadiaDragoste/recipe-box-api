@@ -11,6 +11,20 @@ from flask import Flask, g, jsonify, request
 
 from werkzeug.security import generate_password_hash, check_password_hash
 
+import os
+
+from dotenv import load_dotenv
+
+import jwt
+from datetime import datetime, timedelta, timezone
+
+load_dotenv()
+
+JWT_SECRET = os.getenv("JWT_SECRET")
+
+if not JWT_SECRET:
+    raise RuntimeError("JWT_SECRET is not configured")
+
 DATABASE = "recipes.db"
 
 app = Flask(__name__)
@@ -209,9 +223,19 @@ def login():
     if user is None or not check_password_hash(user["password_hash"], password):
         return jsonify({"error": "Invalid credentials"}), 401
 
+    # Credentials are valid, so create a signed JWT.
+    payload = {
+        "sub": str(user["id"]),
+        "username": user["username"],
+        "exp": datetime.now(timezone.utc) + timedelta(hours=1),
+    }
+
+    token = jwt.encode(payload, JWT_SECRET, algorithm="HS256")
+
     return jsonify({
         "id": user["id"],
         "username": user["username"],
+        "token": token,
     }), 200
 
 if __name__ == "__main__":
