@@ -95,6 +95,8 @@ def token_required(f):
                 algorithms=["HS256"],
                 options={"require": ["sub", "exp"]},
             )
+        except jwt.ExpiredSignatureError:
+            return jsonify({"error": "Token expired. Please log in again."}), 401
         except jwt.InvalidTokenError:
             return jsonify({"error": "Unauthorized"}), 401
 
