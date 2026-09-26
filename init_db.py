@@ -9,7 +9,8 @@ CREATE TABLE IF NOT EXISTS recipes (
     ingredients TEXT NOT NULL,
     instructions TEXT NOT NULL DEFAULT '',
     is_public INTEGER NOT NULL DEFAULT 1,
-    owner_id INTEGER REFERENCES users(id)
+    owner_id INTEGER REFERENCES users(id),
+    role TEXT NOT NULL DEFAULT 'user'
 );
 CREATE TABLE IF NOT EXISTS users (
     id INTEGER PRIMARY KEY,

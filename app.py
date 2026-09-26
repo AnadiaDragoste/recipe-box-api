@@ -101,13 +101,34 @@ def token_required(f):
             return jsonify({"error": "Unauthorized"}), 401
 
         user_id = payload["sub"]
-        return f(*args, user_id=user_id, **kwargs)
+        user_role = payload.get("role", "user")
+        return f(*args, user_id=user_id, user_role=user_role, **kwargs)
+
+    return decorated
+
+def recipe_guard(f):
+    @wraps(f)
+    def decorated(user_id, user_role, recipe_id, *args, **kwargs):
+        db = get_db()
+
+        recipe = db.execute(
+            "SELECT * FROM recipes WHERE id = ?",
+            (recipe_id,),
+        ).fetchone()
+
+        if recipe is None:
+            return jsonify({"error": "recipe not found"}), 404
+
+        if recipe["owner_id"] != int(user_id) and user_role != "admin":
+            return jsonify({"error": "Forbidden: you do not own this recipe"}), 403
+
+        return f(user_id, user_role, recipe_id, *args, recipe=recipe, **kwargs)
 
     return decorated
 
 @app.post("/recipes")
 @token_required
-def create_recipe(user_id):
+def create_recipe(user_id, user_role):
     data = request.get_json(silent=True)
     if not data or not data.get("title") or not data.get("ingredients"):
         return jsonify({"error": "title and ingredients are required"}), 400
@@ -135,7 +156,8 @@ def create_recipe(user_id):
 
 @app.patch("/recipes/<int:recipe_id>")
 @token_required
-def update_recipe(user_id, recipe_id):
+@recipe_guard
+def update_recipe(user_id, user_role, recipe_id, recipe):
     data = request.get_json(silent=True)
     if not data:
         return jsonify({"error": "a JSON body is required"}), 400
@@ -151,17 +173,6 @@ def update_recipe(user_id, recipe_id):
         return jsonify({"error": "nothing to update"}), 400
     values.append(recipe_id)
     db = get_db()
-
-    recipe = db.execute(
-        "SELECT owner_id FROM recipes WHERE id = ?",
-        (recipe_id,),
-    ).fetchone()
-
-    if recipe is None:
-        return jsonify({"error": "recipe not found"}), 404
-
-    if recipe["owner_id"] != int(user_id):
-        return jsonify({"error": "Forbidden: you do not own this recipe"}), 403
 
     try:
         cur = db.execute(
@@ -182,21 +193,11 @@ def update_recipe(user_id, recipe_id):
 
 @app.delete("/recipes/<int:recipe_id>")
 @token_required
-def delete_recipe(user_id, recipe_id):
+@recipe_guard
+def delete_recipe(user_id, user_role, recipe_id, recipe):
     db = get_db()
 
-    recipe = db.execute(
-        "SELECT owner_id FROM recipes WHERE id = ?",
-        (recipe_id,),
-    ).fetchone()
-
-    if recipe is None:
-        return jsonify({"error": "recipe not found"}), 404
-
-    if recipe["owner_id"] != int(user_id):
-        return jsonify({"error": "Forbidden: you do not own this recipe"}), 403
-
-    cur = db.execute(
+    db.execute(
         "DELETE FROM recipes WHERE id = ?",
         (recipe_id,),
     )
@@ -277,7 +278,7 @@ def login():
 
     db = get_db()
     user = db.execute(
-        "SELECT id, username, password_hash FROM users WHERE username = ?",
+        "SELECT id, username, password_hash, role FROM users WHERE username = ?",
         (username.strip(),),
     ).fetchone()
 
@@ -288,6 +289,7 @@ def login():
     payload = {
         "sub": str(user["id"]),
         "username": user["username"],
+        "role": user["role"],
         "exp": datetime.now(timezone.utc) + timedelta(hours=1),
     }
 
