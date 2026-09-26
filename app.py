@@ -114,13 +114,14 @@ def create_recipe(user_id):
     db = get_db()
     try:
         cur = db.execute(
-            "INSERT INTO recipes (title, ingredients, instructions, is_public)"
-            " VALUES (?, ?, ?, ?)",
+            "INSERT INTO recipes (title, ingredients, instructions, is_public, owner_id)"
+            " VALUES (?, ?, ?, ?, ?)",
             (
                 data["title"],
                 data["ingredients"],
                 data.get("instructions", ""),
                 1 if data.get("is_public", True) else 0,
+                int(user_id),
             ),
         )
         db.commit()
@@ -150,6 +151,18 @@ def update_recipe(user_id, recipe_id):
         return jsonify({"error": "nothing to update"}), 400
     values.append(recipe_id)
     db = get_db()
+
+    recipe = db.execute(
+        "SELECT owner_id FROM recipes WHERE id = ?",
+        (recipe_id,),
+    ).fetchone()
+
+    if recipe is None:
+        return jsonify({"error": "recipe not found"}), 404
+
+    if recipe["owner_id"] != int(user_id):
+        return jsonify({"error": "Forbidden: you do not own this recipe"}), 403
+
     try:
         cur = db.execute(
             f"UPDATE recipes SET {', '.join(fields)} WHERE id = ?", values
@@ -157,8 +170,10 @@ def update_recipe(user_id, recipe_id):
         db.commit()
     except sqlite3.IntegrityError:
         return jsonify({"error": "a recipe with that title already exists"}), 409
+
     if cur.rowcount == 0:
         return jsonify({"error": "recipe not found"}), 404
+
     row = db.execute(
         "SELECT * FROM recipes WHERE id = ?", (recipe_id,)
     ).fetchone()
@@ -169,10 +184,24 @@ def update_recipe(user_id, recipe_id):
 @token_required
 def delete_recipe(user_id, recipe_id):
     db = get_db()
-    cur = db.execute("DELETE FROM recipes WHERE id = ?", (recipe_id,))
-    db.commit()
-    if cur.rowcount == 0:
+
+    recipe = db.execute(
+        "SELECT owner_id FROM recipes WHERE id = ?",
+        (recipe_id,),
+    ).fetchone()
+
+    if recipe is None:
         return jsonify({"error": "recipe not found"}), 404
+
+    if recipe["owner_id"] != int(user_id):
+        return jsonify({"error": "Forbidden: you do not own this recipe"}), 403
+
+    cur = db.execute(
+        "DELETE FROM recipes WHERE id = ?",
+        (recipe_id,),
+    )
+    db.commit()
+
     return "", 204
 
 @app.route("/register", methods=["POST"])
