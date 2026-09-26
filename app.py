@@ -11,6 +11,8 @@ from flask import Flask, g, jsonify, request
 
 from werkzeug.security import generate_password_hash, check_password_hash
 
+from functools import wraps
+
 import os
 
 from dotenv import load_dotenv
@@ -75,9 +77,35 @@ def get_recipe(recipe_id):
         return jsonify({"error": "recipe not found"}), 404
     return jsonify(recipe_to_dict(row))
 
+def token_required(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        auth_header = request.headers.get("Authorization", "")
+        parts = auth_header.split()
+
+        if len(parts) != 2 or parts[0] != "Bearer" or not parts[1]:
+            return jsonify({"error": "Unauthorized"}), 401
+
+        token = parts[1]
+
+        try:
+            payload = jwt.decode(
+                token,
+                JWT_SECRET,
+                algorithms=["HS256"],
+                options={"require": ["sub", "exp"]},
+            )
+        except jwt.InvalidTokenError:
+            return jsonify({"error": "Unauthorized"}), 401
+
+        user_id = payload["sub"]
+        return f(*args, user_id=user_id, **kwargs)
+
+    return decorated
 
 @app.post("/recipes")
-def create_recipe():
+@token_required
+def create_recipe(user_id):
     data = request.get_json(silent=True)
     if not data or not data.get("title") or not data.get("ingredients"):
         return jsonify({"error": "title and ingredients are required"}), 400
@@ -103,7 +131,8 @@ def create_recipe():
 
 
 @app.patch("/recipes/<int:recipe_id>")
-def update_recipe(recipe_id):
+@token_required
+def update_recipe(user_id, recipe_id):
     data = request.get_json(silent=True)
     if not data:
         return jsonify({"error": "a JSON body is required"}), 400
@@ -135,7 +164,8 @@ def update_recipe(recipe_id):
 
 
 @app.delete("/recipes/<int:recipe_id>")
-def delete_recipe(recipe_id):
+@token_required
+def delete_recipe(user_id, recipe_id):
     db = get_db()
     cur = db.execute("DELETE FROM recipes WHERE id = ?", (recipe_id,))
     db.commit()
